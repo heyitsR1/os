@@ -5,6 +5,7 @@
 #include "gdt.h"
 #include "idt.h"
 #include "isr.h"
+#include "pic.h"
 
 static void qemu_exit(uint8_t code) {
     outb(0xF4, code);
@@ -34,6 +35,10 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     klog("IDT_OK\n");
 
     __asm__ volatile ("int $0x3");   // breakpoint -> should print ISR3_OK
+
+    pic_remap();
+    irq_install();
+    klog("PIC_OK\n");
 
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");

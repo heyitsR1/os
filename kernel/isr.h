@@ -13,6 +13,7 @@ typedef struct registers {
 typedef void (*isr_handler_t)(registers_t *);
 
 void isr_install(void);                          // register exception gates 0-31
+void irq_install(void);   // register IRQ gates 32-47 (call after pic_remap)
 void irq_install_handler(int irq, isr_handler_t h);
 void irq_uninstall_handler(int irq);
 
