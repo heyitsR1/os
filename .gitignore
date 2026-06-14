@@ -1,2 +1,5 @@
 context.md
 .claude
+build/
+*.iso
+.DS_Store
