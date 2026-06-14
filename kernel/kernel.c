@@ -2,6 +2,7 @@
 #include "../include/io.h"
 #include "serial.h"
 #include "vga.h"
+#include "gdt.h"
 
 static void qemu_exit(uint8_t code) {
     outb(0xF4, code);
@@ -22,6 +23,9 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     vga_set_color(VGA_WHITE, VGA_BLUE);
     klog("omen OS - phase 1\n");
     klog("VGA_OK\n");
+
+    gdt_init();
+    klog("GDT_OK\n");
 
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");
