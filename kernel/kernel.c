@@ -3,6 +3,8 @@
 #include "serial.h"
 #include "vga.h"
 #include "gdt.h"
+#include "idt.h"
+#include "isr.h"
 
 static void qemu_exit(uint8_t code) {
     outb(0xF4, code);
@@ -26,6 +28,12 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
 
     gdt_init();
     klog("GDT_OK\n");
+
+    idt_init();
+    isr_install();
+    klog("IDT_OK\n");
+
+    __asm__ volatile ("int $0x3");   // breakpoint -> should print ISR3_OK
 
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");
