@@ -29,3 +29,11 @@ void serial_putc(char c) {
 void serial_write(const char *s) {
     for (; *s; s++) serial_putc(*s);
 }
+
+void serial_write_uint(uint32_t n) {
+    if (n == 0) { serial_putc('0'); return; }
+    char tmp[11];
+    int  i = 0;
+    while (n) { tmp[i++] = '0' + (n % 10); n /= 10; }
+    while (i--) serial_putc(tmp[i]);
+}

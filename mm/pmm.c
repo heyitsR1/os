@@ -1,4 +1,5 @@
 #include "pmm.h"
+#include "../kernel/serial.h"
 
 #define PAGE_SIZE   4096
 #define MAX_FRAMES  (256 * 1024)          // covers 1 GiB of physical RAM
@@ -98,6 +99,11 @@ void pmm_init(uint32_t mb_info_addr) {
     pmm_mark_used(0, PAGE_SIZE);
     pmm_mark_used(0x100000, (uint32_t)&_kernel_end - 0x100000 + PAGE_SIZE);
 
+    serial_write("PMM: ");
+    serial_write_uint(free_frames);
+    serial_write(" free frames (");
+    serial_write_uint(free_frames * 4);
+    serial_write(" KiB)\n");
 }
 
 uint32_t pmm_alloc_frame(void) {
