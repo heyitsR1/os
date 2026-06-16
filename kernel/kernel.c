@@ -13,6 +13,7 @@
 #include "../mm/paging.h"
 #include "../mm/kmalloc.h"
 #include "../sched/sched.h"
+#include "../sched/proc.h"
 
 static void qemu_exit(uint8_t code) {
     outb(0xF4, code);
@@ -40,6 +41,27 @@ static volatile int stop_workers = 0;
 
 static void worker_p(void) { while (!stop_workers) work_p++; }
 static void worker_q(void) { while (!stop_workers) work_q++; }
+
+// --- Phase 3, Item 11: multiprocessing test ---
+// Two processes whose page directories both map MP_VADDR, but to different
+// physical frames. Each writes its own signature there and, after letting the
+// other run, reads it back. If both still see their own value, the address
+// spaces are genuinely isolated — the CR3 swap on context switch works.
+#define MP_VADDR 0x01000000u   // 16 MiB: unmapped in the kernel directory
+static volatile int mp_a = 0, mp_b = 0;
+
+static void proc_a(void) {
+    volatile uint32_t *p = (volatile uint32_t *)MP_VADDR;
+    *p = 0xAAAAAAAAu;
+    for (int i = 0; i < 4; i++) sched_yield();
+    mp_a = (*p == 0xAAAAAAAAu);
+}
+static void proc_b(void) {
+    volatile uint32_t *p = (volatile uint32_t *)MP_VADDR;
+    *p = 0xBBBBBBBBu;
+    for (int i = 0; i < 4; i++) sched_yield();
+    mp_b = (*p == 0xBBBBBBBBu);
+}
 
 // Print to both the on-screen terminal and the serial port.
 static void klog(const char *s) {
@@ -125,6 +147,15 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     for (int i = 0; i < 4; i++) sched_yield();   // let the workers exit
     if (work_p > 0 && work_q > 0) klog("SCHED_OK\n");
     else                          klog("SCHED_FAIL\n");
+
+    // Phase 3, Item 11 — multiprocessing with isolated address spaces.
+    task_t *pa = task_create(proc_a);
+    pa->cr3 = process_create_space(MP_VADDR);
+    task_t *pb = task_create(proc_b);
+    pb->cr3 = process_create_space(MP_VADDR);
+    while (!mp_a || !mp_b) sched_yield();
+    if (mp_a && mp_b) klog("MP_OK\n");
+    else              klog("MP_FAIL\n");
 
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");
