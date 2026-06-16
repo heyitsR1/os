@@ -31,6 +31,16 @@ static void thread_b(void) {
     for (int i = 0; i < 5; i++) { b_runs++; serial_write("B"); sched_yield(); }
 }
 
+// --- Phase 3, Item 10: preemptive scheduling test ---
+// These workers never call sched_yield(); the only thing that can take the
+// CPU away from them is the PIT preempting on IRQ0. If both counters advance
+// while neither thread cooperates, the preemptive scheduler is working.
+static volatile uint32_t work_p = 0, work_q = 0;
+static volatile int stop_workers = 0;
+
+static void worker_p(void) { while (!stop_workers) work_p++; }
+static void worker_q(void) { while (!stop_workers) work_q++; }
+
 // Print to both the on-screen terminal and the serial port.
 static void klog(const char *s) {
     vga_write(s);
@@ -103,6 +113,18 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     serial_write("\n");
     if (a_runs >= 5 && b_runs >= 5) klog("THREADS_OK\n");
     else                            klog("THREADS_FAIL\n");
+
+    // Phase 3, Item 10 — preemptive scheduling. Spawn two workers that never
+    // yield, then spin for ~30 ticks (300 ms). Both counters can only advance
+    // if the timer is preempting them.
+    task_create(worker_p);
+    task_create(worker_q);
+    uint32_t t0 = pit_get_ticks();
+    while (pit_get_ticks() - t0 < 30) __asm__ volatile ("hlt");
+    stop_workers = 1;
+    for (int i = 0; i < 4; i++) sched_yield();   // let the workers exit
+    if (work_p > 0 && work_q > 0) klog("SCHED_OK\n");
+    else                          klog("SCHED_FAIL\n");
 
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");

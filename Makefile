@@ -19,7 +19,7 @@ OBJS    := $(ASM_OBJS) $(C_OBJS)
 KERNEL  := build/kernel.bin
 ISO     := build/os.iso
 
-EXPECT  ?= THREADS_OK
+EXPECT  ?= SCHED_OK
 
 .PHONY: all run test iso clean
 
