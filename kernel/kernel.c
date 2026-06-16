@@ -6,6 +6,7 @@
 #include "idt.h"
 #include "isr.h"
 #include "pic.h"
+#include "pit.h"
 
 static void qemu_exit(uint8_t code) {
     outb(0xF4, code);
@@ -39,6 +40,17 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     pic_remap();
     irq_install();
     klog("PIC_OK\n");
+
+    // Enable interrupts, then start the PIT at 100 Hz.
+    __asm__ volatile ("sti");
+    pit_init(100);
+    klog("PIT_OK\n");
+
+    // Spin for a few ticks to prove IRQ0 is actually firing.
+    uint32_t start = pit_get_ticks();
+    while (pit_get_ticks() - start < 3)
+        __asm__ volatile ("hlt");
+    klog("TIMER_OK\n");
 
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");
