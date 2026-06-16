@@ -19,7 +19,7 @@ OBJS    := $(ASM_OBJS) $(C_OBJS)
 KERNEL  := build/kernel.bin
 ISO     := build/os.iso
 
-EXPECT  ?= HEAP_OK
+EXPECT  ?= KMALLOC_OK
 
 .PHONY: all run test iso clean
 

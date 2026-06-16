@@ -71,6 +71,16 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     kmalloc_init();
     klog("HEAP_OK\n");
 
+    // Smoke-test: two allocations must be non-null and non-overlapping.
+    uint32_t *a = (uint32_t *)kmalloc(16);
+    uint32_t *b = (uint32_t *)kmalloc(16);
+    *a = 0xDEADBEEF;
+    *b = 0xCAFEBABE;
+    if (*a == 0xDEADBEEF && *b == 0xCAFEBABE && a != b)
+        klog("KMALLOC_OK\n");
+    else
+        klog("KMALLOC_FAIL\n");
+
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");
     }
