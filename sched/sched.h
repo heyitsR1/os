@@ -12,6 +12,7 @@ typedef struct task {
     uint32_t      stack_size;
     void        (*entry)(void);
     int           state;       // TASK_READY / TASK_RUNNING / TASK_DEAD
+    uint32_t      cr3;         // page directory (physical); swapped on switch
     struct task  *next;        // circular scheduler list
 } task_t;
 

@@ -9,9 +9,10 @@ section .text
 global context_switch
 global thread_trampoline
 
-; void context_switch(uint32_t *old_esp, uint32_t new_esp);
-;   [esp+4] = old_esp  (where to store the outgoing task's ESP)
-;   [esp+8] = new_esp  (the incoming task's saved ESP)
+; void context_switch(uint32_t *old_esp, uint32_t new_esp, uint32_t new_cr3);
+;   [esp+4]  = old_esp   (where to store the outgoing task's ESP)
+;   [esp+8]  = new_esp   (the incoming task's saved ESP)
+;   [esp+12] = new_cr3   (the incoming task's page directory; 0 = leave CR3)
 context_switch:
     push ebp
     push ebx
@@ -20,7 +21,15 @@ context_switch:
     ; After 4 pushes the args have shifted up by 16 bytes.
     mov eax, [esp + 20]    ; old_esp pointer
     mov [eax], esp         ; *old_esp = current ESP (context now fully saved)
-    mov esp, [esp + 24]    ; load the incoming task's ESP
+    mov edx, [esp + 24]    ; incoming ESP
+    mov ecx, [esp + 28]    ; incoming CR3
+    mov esp, edx           ; switch onto the new stack
+    ; Switch address spaces. Writing CR3 flushes the TLB, so skip it when the
+    ; task carries no directory of its own (cr3 == 0).
+    test ecx, ecx
+    jz .skip_cr3
+    mov cr3, ecx
+.skip_cr3:
     pop edi
     pop esi
     pop ebx

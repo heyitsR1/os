@@ -30,3 +30,7 @@ void paging_init(void) {
     );
 
 }
+
+uint32_t paging_kernel_dir(void) {
+    return (uint32_t)page_dir;
+}

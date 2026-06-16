@@ -1,10 +1,11 @@
 #include "sched.h"
 #include "../mm/kmalloc.h"
+#include "../mm/paging.h"
 
 #define STACK_SIZE 8192   // 8 KiB kernel stack per thread
 
 // Defined in context_switch.asm.
-extern void context_switch(uint32_t *old_esp, uint32_t new_esp);
+extern void context_switch(uint32_t *old_esp, uint32_t new_esp, uint32_t new_cr3);
 extern void thread_trampoline(void);
 
 static task_t *current = 0;   // the task currently on the CPU
@@ -27,6 +28,7 @@ void sched_init(void) {
     t->stack_size = 0;
     t->entry = 0;
     t->state = TASK_RUNNING;
+    t->cr3 = paging_kernel_dir();   // task 0 runs in the kernel address space
     t->next = t;              // a ring of one
     current = t;
 }
@@ -39,6 +41,7 @@ task_t *task_create(void (*entry)(void)) {
     t->stack_size = STACK_SIZE;
     t->entry      = entry;
     t->state      = TASK_READY;
+    t->cr3        = paging_kernel_dir();  // share kernel space until made a process
 
     // Forge an initial stack so the first context_switch into this task
     // returns into thread_trampoline (sti) -> entry. When entry returns it
@@ -78,7 +81,7 @@ void schedule(void) {
     if (prev->state == TASK_RUNNING) prev->state = TASK_READY;
     next->state = TASK_RUNNING;
     current = next;
-    context_switch(&prev->esp, next->esp);
+    context_switch(&prev->esp, next->esp, next->cr3);
 }
 
 void sched_yield(void) {
