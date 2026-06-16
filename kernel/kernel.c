@@ -12,9 +12,23 @@
 #include "../mm/pmm.h"
 #include "../mm/paging.h"
 #include "../mm/kmalloc.h"
+#include "../sched/sched.h"
 
 static void qemu_exit(uint8_t code) {
     outb(0xF4, code);
+}
+
+// --- Phase 3, Item 9: cooperative multithreading test ---
+// Two kernel threads that take turns via sched_yield(). The interleaved
+// "ABAB..." on the serial line proves the context switch really alternates
+// between two independent stacks.
+static volatile int a_runs = 0, b_runs = 0;
+
+static void thread_a(void) {
+    for (int i = 0; i < 5; i++) { a_runs++; serial_write("A"); sched_yield(); }
+}
+static void thread_b(void) {
+    for (int i = 0; i < 5; i++) { b_runs++; serial_write("B"); sched_yield(); }
 }
 
 // Print to both the on-screen terminal and the serial port.
@@ -80,6 +94,15 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
         klog("KMALLOC_OK\n");
     else
         klog("KMALLOC_FAIL\n");
+
+    // Phase 3, Item 9 — cooperative multithreading.
+    sched_init();
+    task_create(thread_a);
+    task_create(thread_b);
+    while (a_runs < 5 || b_runs < 5) sched_yield();
+    serial_write("\n");
+    if (a_runs >= 5 && b_runs >= 5) klog("THREADS_OK\n");
+    else                            klog("THREADS_FAIL\n");
 
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");
