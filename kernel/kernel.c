@@ -7,6 +7,11 @@
 #include "isr.h"
 #include "pic.h"
 #include "pit.h"
+#include "keyboard.h"
+#include "mouse.h"
+#include "../mm/pmm.h"
+#include "../mm/paging.h"
+#include "../mm/kmalloc.h"
 
 static void qemu_exit(uint8_t code) {
     outb(0xF4, code);
@@ -19,7 +24,6 @@ static void klog(const char *s) {
 }
 
 void kernel_main(uint32_t magic, uint32_t mb_info) {
-    (void)mb_info;
     serial_init();
     serial_write("BOOT_OK\n");
 
@@ -51,6 +55,21 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     while (pit_get_ticks() - start < 3)
         __asm__ volatile ("hlt");
     klog("TIMER_OK\n");
+
+    keyboard_init();
+    klog("KBD_OK\n");
+
+    mouse_init();
+    klog("MOUSE_OK\n");
+
+    pmm_init(mb_info);
+    klog("PMM_OK\n");
+
+    paging_init();
+    klog("PAGING_OK\n");
+
+    kmalloc_init();
+    klog("HEAP_OK\n");
 
     if (magic != 0x2BADB002) {
         klog("BAD_MAGIC\n");
