@@ -34,6 +34,10 @@ static int mouse_read(void) {
     return (int)(uint8_t)inb(PS2_DATA);
 }
 
+// Screen limits (VGA 80x25 text mode, 1-based columns/rows)
+#define SCREEN_W 80
+#define SCREEN_H 25
+
 // 3-byte packet accumulation
 static uint8_t  packet[3];
 static uint8_t  byte_idx = 0;
@@ -58,6 +62,13 @@ static void mouse_handler(registers_t *r) {
 
     state.x += dx;
     state.y -= dy;   // screen Y grows downward; mouse Y grows upward
+
+    // Clamp to VGA text-mode bounds
+    if (state.x < 0)          state.x = 0;
+    if (state.x >= SCREEN_W)  state.x = SCREEN_W - 1;
+    if (state.y < 0)          state.y = 0;
+    if (state.y >= SCREEN_H)  state.y = SCREEN_H - 1;
+
     state.buttons = flags & 0x07;
 }
 
