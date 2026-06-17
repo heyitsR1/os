@@ -1,106 +1,60 @@
-# 14 — Multiprocessing: isolated address spaces
+# 14 — Multiprocessing
 
-**What we built:** the leap from *threads* to *processes*. Every process gets its
-**own page directory**, and the context switch now swaps `CR3` along with the
-stack. Two processes can use the **same virtual address** for completely different
-memory — neither can see or corrupt the other's data.
+Processes with isolated address spaces. Two processes can use the same virtual
+address and get completely different memory — they can't see or corrupt each other.
 
-## The big idea: threads share memory, processes don't
+## Threads vs processes
 
-The threads from steps 12–13 all share one address space — the kernel's
-identity-mapped page directory. That's fine for kernel tasks, but it means any
-thread can read or clobber any other thread's memory. A real **process** is
-isolated: it has a private view of memory, enforced by the hardware.
+The threads from steps 12–13 all share one address space (the kernel's identity map).
+Any thread can read or modify any other thread's memory. A **process** is isolated:
+it has its own view of memory enforced by hardware.
 
-On x86 that private view is a **page directory**, and the CPU finds the active one
-through the `CR3` register. Switch `CR3` and you switch address spaces instantly —
-the same virtual address now resolves through a different set of page tables to a
-different physical frame. Isolation is therefore just: *give each process its own
-page directory, and load it on every context switch.*
+On x86 that private view is a **page directory**. The CPU finds the active page
+directory through the `CR3` register. To switch address spaces, you swap CR3.
+That's it — the same virtual address now resolves through a different set of page
+tables to a different physical frame.
 
 ## Extending the context switch
 
-`CR3` is loaded right after the stack swap. Writing `CR3` flushes the TLB (the
-CPU's cache of address translations), so stale mappings from the previous process
-can't leak through.
+We added a CR3 swap right after the stack swap in `context_switch.asm`:
 
 ```asm
-    mov esp, edx           ; switch onto the new stack
-    mov ecx, [esp + 28]    ; incoming CR3
+    mov esp, edx           ; switch stacks
+    mov ecx, [esp + 28]    ; incoming CR3 value
     test ecx, ecx
-    jz .skip_cr3           ; cr3 == 0 → leave the address space alone
-    mov cr3, ecx           ; load new page directory (also flushes the TLB)
+    jz .skip_cr3           ; 0 means "don't change address space"
+    mov cr3, ecx           ; load new page directory, flushes TLB
 .skip_cr3:
 ```
 
-Every task carries a `cr3` field. Plain kernel threads set it to the kernel's own
-directory, so reloading it is harmless (same mapping). A process sets it to a
-private directory built by `process_create_space`.
+Writing CR3 also flushes the TLB (the CPU's cache of address translations), so
+there's no risk of stale mappings from the previous process leaking through.
 
 ## Building a private address space
 
-A process can't throw away the kernel's mappings — its own code, stack, and the
-interrupt handlers all live in the kernel's identity-mapped low 16 MiB. So a new
-directory **copies the kernel's low mappings** and then adds one private page:
+A process can't throw away the kernel's mappings — its own code and stack live
+there, and so do the interrupt handlers. So `process_create_space()` builds a new
+page directory that **copies the kernel's first 4 entries** (covering 0–16 MiB)
+and then adds one private page at the requested virtual address backed by a fresh
+physical frame from the PMM.
 
-```c
-uint32_t process_create_space(uint32_t vaddr) {
-    uint32_t *dir  = kmalloc_aligned(4096, 4096);   // new page directory
-    uint32_t *kdir = (uint32_t *)paging_kernel_dir();
+Two processes calling it with the same virtual address get two different physical
+frames behind that address — neither can see the other's memory.
 
-    for (int i = 0; i < 1024; i++) dir[i] = 0;
-    for (int i = 0; i < 4; i++)    dir[i] = kdir[i]; // share kernel 0–16 MiB
+## Proof
 
-    uint32_t *pt    = kmalloc_aligned(4096, 4096);   // new page table
-    uint32_t  frame = pmm_alloc_frame();             // a private physical frame
-    pt[(vaddr >> 12) & 0x3FF] = frame | PAGE_PRESENT | PAGE_WRITE;
-    dir[vaddr >> 22]          = (uint32_t)pt | PAGE_PRESENT | PAGE_WRITE;
+Two processes both map virtual address `0x01000000` (deliberately outside the
+kernel's identity map, so it only exists inside a process). Each writes its own
+signature value there, yields a few times to let the other run, then reads it back:
 
-    return (uint32_t)dir;   // identity-mapped, so virtual == physical == CR3
-}
-```
+- Process A writes `0xAAAAAAAA`, yields, reads back `0xAAAAAAAA` ✓
+- Process B writes `0xBBBBBBBB`, yields, reads back `0xBBBBBBBB` ✓
 
-Two processes calling this with the **same** `vaddr` get two **different** physical
-frames behind that address — the essence of isolation.
-
-## Proving it works
-
-Two processes both map `0x01000000` (16 MiB — deliberately *unmapped* in the
-kernel directory, so it only exists inside a process). Each writes its own
-signature, lets the other run via `sched_yield`, then reads the value back:
-
-```c
-static void proc_a(void) {
-    volatile uint32_t *p = (uint32_t *)0x01000000;
-    *p = 0xAAAAAAAA;
-    for (int i = 0; i < 4; i++) sched_yield();
-    mp_a = (*p == 0xAAAAAAAA);   // still our value?
-}
-// proc_b is identical with 0xBBBBBBBB
-```
-
-If the address spaces were shared, whoever wrote last would win and the other
-would read the wrong signature. Instead both read back their own value — proving
-the `0x01000000` in `proc_a` and the `0x01000000` in `proc_b` are genuinely
-different memory. We print `MP_OK`.
+If the spaces were shared, whoever wrote last would win and the other would see the
+wrong value. Both seeing their own value proves the isolation is real.
 
 ```
-THREADS_OK
-SCHED_OK
 MP_OK
 ```
 
-## Where we are now
-
-- ✅ `CR3` swapped on every context switch (TLB flushed automatically).
-- ✅ `process_create_space` builds a private directory sharing the kernel's low map.
-- ✅ Two processes share a virtual address but not the physical memory — `MP_OK`.
-- ✅ Phase 3 complete: **multithreading, CPU scheduling, multiprocessing**.
-
-**Jargon recap:** *process* = a thread with its own isolated address space.
-*page directory* = the top-level table the CPU uses to translate virtual to
-physical addresses. *CR3* = the register holding the physical address of the
-active page directory; changing it switches address spaces. *TLB* = Translation
-Lookaside Buffer, the CPU's cache of recent address translations, flushed when
-CR3 is written. *address-space isolation* = the guarantee that one process cannot
-read or write another's memory.
+That's the end of Phase 3 and all 6 required OS features.

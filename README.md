@@ -1,65 +1,70 @@
-# Custom OS — BSIT 338 Final Project
+# omen OS — BSIT 338 Final Project
 
-A small x86 protected-mode operating system kernel built from scratch for the
-BSIT 338 Operating Systems course (Summer 2026), by team **omen**
-(Aarohan Niraula, Bishesh Raut, Karan Tamang).
+Custom x86 kernel written from scratch for BSIT 338 (Operating Systems), Summer 2026.
+Team: Aarohan Niraula, Bishesh Raut, Karan Tamang.
 
-## ➢ What this is
+## What it does
 
-A bare-metal kernel that boots via GRUB, sets up its own segment and interrupt
-tables, and implements the core subsystems every general-purpose OS needs:
+Boots on a virtual x86 PC and brings up the core pieces of an operating system:
 
-- Boot (GRUB2 + Multiboot1)
-- Global Descriptor Table (flat ring-0 segments)
-- Interrupt Descriptor Table, exception handlers, and PIC remapping
-- A programmable interval timer driving a periodic tick
-- PS/2 keyboard driver (scancode → ASCII input)
-- PS/2 mouse driver (position and button state)
-- Physical memory management and paging
-- A kernel heap allocator (`kmalloc`)
-- Kernel-level multithreading with hand-written context switching
-- A preemptive, round-robin CPU scheduler
-- Multiprocessing via multiple task contexts, each with its own page directory
+- GRUB bootloader + our own multiboot stub
+- GDT and IDT (the CPU-level tables every protected-mode OS needs)
+- PIC remapping so hardware interrupts don't collide with CPU exceptions
+- PIT timer running at 100 Hz
+- PS/2 keyboard and mouse drivers
+- Physical memory manager and paging
+- Kernel heap (`kmalloc`)
+- Kernel threads with hand-written context switching
+- Preemptive round-robin CPU scheduler
+- Multiple processes with isolated address spaces (CR3 swap)
 
-## ➢ What we will do
+Everything runs in ring 0, 32-bit protected mode. No user mode, no filesystem, no SMP.
 
-- Keep everything running in 32-bit protected mode (i686), in ring 0
-- Use a small assembly stub to satisfy the Multiboot header and hand off to a
-  C `kernel_main()`
-- Build and test with a prebuilt `i686-elf` cross-compiler and `qemu-system-i386`
-- Implement "processes" as pre-compiled C functions running as separate task
-  contexts, each with its own CR3 (page directory)
-- Keep the build simple: a plain Makefile, no extra build tooling
+## Building and running
 
-## ➢ What we won't do
-
-- Write a custom bootloader, filesystem driver, or build a cross-compiler from
-  source — we rely on off-the-shelf, well-tested equivalents (GRUB, prebuilt
-  `i686-elf-gcc`)
-- Implement a filesystem of any kind
-- Support user-mode programs, an ELF loader, or a syscall interface
-- Support USB devices — only PS/2 keyboard and mouse (fully supported by QEMU)
-- Go beyond basic VGA text mode for graphics
-- Implement ACPI or multi-core (SMP) support — this is a single-CPU,
-  software-multitasked design
-
-## ➢ Project structure
-
-```
-boot/        # Multiboot stub (assembly)
-kernel/      # kernel_main, GDT, IDT, ISRs, PIC, PIT
-drivers/     # keyboard.c, mouse.c
-mm/          # physical memory manager, paging, kmalloc
-sched/       # task struct, context_switch (assembly), scheduler
-Makefile
-linker.ld
-```
-
-## ➢ Building and running
-
-Requires the `i686-elf` cross-compiler toolchain and QEMU.
+You need the `i686-elf` cross-compiler toolchain and QEMU installed.
 
 ```bash
-make
-qemu-system-i386 -kernel build/kernel.bin
+make            # compile everything into build/kernel.bin
+make test       # run headless in QEMU and check all markers pass
+make run        # run with serial output printed to your terminal
 ```
+
+To test a specific phase:
+```bash
+make test EXPECT=THREADS_OK
+make test EXPECT=SCHED_OK
+make test EXPECT=MP_OK
+```
+
+## Project structure
+
+```
+boot/        multiboot stub (assembly)
+kernel/      kernel_main, GDT, IDT, ISRs, PIC, PIT, keyboard, mouse, serial, VGA
+mm/          physical memory manager, paging, kmalloc
+sched/       task struct, context_switch (assembly), scheduler, process isolation
+scripts/     test.sh — headless QEMU test harness
+linker.ld
+Makefile
+```
+
+## What the output means
+
+When you run `make test` you'll see lines like:
+```
+BOOT_OK → VGA_OK → GDT_OK → IDT_OK → ISR3_OK → PIC_OK → PIT_OK → TIMER_OK →
+KBD_OK → MOUSE_OK → PMM_OK → PAGING_OK → HEAP_OK → KMALLOC_OK →
+BABABABABA → THREADS_OK → SCHED_OK → MP_OK
+```
+
+Each marker means that subsystem initialized and passed its test. `BABABABABA` is two
+threads alternating — proof the context switch is actually working. `SCHED_OK` means two
+CPU-hog threads both made progress without ever yielding, so the preemptive timer is
+doing its job. `MP_OK` means two processes wrote to the same virtual address and each
+read back their own value — isolated address spaces confirmed.
+
+## Progress docs
+
+`progress-documentation/` has a write-up for each feature explaining what we built
+and how it works.

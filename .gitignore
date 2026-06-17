@@ -1,4 +1,7 @@
 context.md
+GUIDE.md
+docs/superpowers/
+docs/phase3-handoff.md
 .claude
 build/
 *.iso
