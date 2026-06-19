@@ -84,7 +84,12 @@ extern void pic_send_eoi(uint8_t irq);
 
 void irq_handler(registers_t *r) {
     uint8_t irq = (uint8_t)(r->int_no - 32);
+    // Acknowledge the PIC *before* dispatching. The timer handler may
+    // context-switch into a brand-new task that never returns through this
+    // function, so the EOI has to be sent up front or the next IRQ0 would
+    // never fire. With interrupts disabled in this gate there is no
+    // re-entrancy hazard from acking early.
+    pic_send_eoi(irq);
     if (irq < 16 && irq_handlers[irq])
         irq_handlers[irq](r);
-    pic_send_eoi(irq);
 }

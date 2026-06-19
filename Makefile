@@ -4,13 +4,13 @@ AS      := nasm
 QEMU    := qemu-system-i386
 
 # ---- Flags ----
-CFLAGS  := -std=gnu11 -ffreestanding -O2 -Wall -Wextra -Iinclude -Ikernel -Imm
+CFLAGS  := -std=gnu11 -ffreestanding -O2 -Wall -Wextra -Iinclude -Ikernel -Imm -Isched
 ASFLAGS := -f elf32
 LDFLAGS := -T linker.ld -ffreestanding -O2 -nostdlib
 
 # ---- Sources ----
-C_SRCS  := $(wildcard kernel/*.c) $(wildcard mm/*.c)
-ASM_SRCS:= $(wildcard boot/*.asm) $(wildcard kernel/*.asm)
+C_SRCS  := $(wildcard kernel/*.c) $(wildcard mm/*.c) $(wildcard sched/*.c)
+ASM_SRCS:= $(wildcard boot/*.asm) $(wildcard kernel/*.asm) $(wildcard sched/*.asm)
 
 C_OBJS  := $(patsubst %.c,build/%.o,$(C_SRCS))
 ASM_OBJS:= $(patsubst %.asm,build/%.o,$(ASM_SRCS))
@@ -19,7 +19,7 @@ OBJS    := $(ASM_OBJS) $(C_OBJS)
 KERNEL  := build/kernel.bin
 ISO     := build/os.iso
 
-EXPECT  ?= KMALLOC_OK
+EXPECT  ?= MP_OK
 
 .PHONY: all run test iso clean
 

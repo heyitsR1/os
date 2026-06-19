@@ -6,3 +6,8 @@
 #define PAGE_SIZE    4096
 
 void paging_init(void);
+
+// Physical address of the kernel's page directory. Identity-mapped low
+// memory means this value is both the virtual and physical address, so it
+// can be loaded straight into CR3.
+uint32_t paging_kernel_dir(void);

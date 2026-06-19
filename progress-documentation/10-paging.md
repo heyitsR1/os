@@ -1,88 +1,46 @@
-# 10 — Paging: virtual memory and address translation
+# 10 — Paging
 
-**What we built:** an x86 32-bit **paging layer** that identity-maps the first
-16 MiB of physical memory, loads the page directory into CR3, and sets the PG
-bit in CR0 — enabling the MMU so that every future memory access goes through
-hardware address translation.
+Paging enables virtual memory — the CPU translates every address through a table
+before accessing physical RAM. This is what makes process isolation possible later:
+each process gets its own table, so the same virtual address in two processes can
+map to different physical memory.
 
-## The big idea: why paging?
+## Why we need it
 
-Without paging every process shares the same physical address space. One bug in
-any task can overwrite any other task's memory or the kernel itself. Paging
-interposes a hardware translation layer:
+Without paging every process shares the same physical memory. One bad pointer in
+any task can corrupt any other task, or the kernel itself. Paging interposes a
+translation layer that the hardware enforces — a page can be marked not-present or
+read-only, and the CPU faults on violations.
 
-```
-virtual address  →  [page directory + page table lookup]  →  physical address
-```
+## How x86 paging works
 
-Each process gets its own page directory (its own *view* of memory), making
-address spaces independent. It is also the mechanism for memory protection: a
-page can be marked not-present, read-only, or supervisor-only, so the CPU raises
-a fault on illegal accesses.
-
-For now we use a **single shared page directory** (all ring-0 kernel code) with
-an identity mapping — virtual address N equals physical address N. This is the
-simplest correct starting point and lets all existing pointers keep working after
-paging is enabled.
-
-## x86 two-level page table structure
-
-With 32-bit addresses and 4 KiB pages:
+With 32-bit addresses and 4 KiB pages, every virtual address is split into three
+parts:
 
 ```
-31      22 21      12 11       0
-[ PD idx ] [ PT idx ] [ offset ]
-   10 bits    10 bits   12 bits
+bits 31-22: page directory index (which page table)
+bits 21-12: page table index (which 4 KiB page)
+bits 11-0:  offset within that page
 ```
 
-- **Page directory (PD):** 1024 entries × 4 bytes = 4 KiB. Entry `i` points to
-  a page table that covers virtual addresses `[i × 4 MiB, (i+1) × 4 MiB)`.
-- **Page table (PT):** 1024 entries × 4 bytes = 4 KiB. Entry `j` maps one
-  4 KiB page.
+The CPU starts from a **page directory** whose physical address is in the `CR3`
+register. Each directory entry points to a **page table**. Each page table entry
+maps one 4 KiB page to a physical frame.
 
-## Our mapping
+## Our setup
 
-We statically allocate 4 page tables (covering 4 × 4 MiB = **16 MiB**) in
-`.bss` with `__attribute__((aligned(4096)))`. Each PT entry is:
+For now we use a single page directory (the kernel's). We statically allocate 4
+page tables covering the first 16 MiB of physical memory and identity-map them —
+virtual address = physical address for everything in that range. This means all our
+existing pointers still work after paging is turned on, since the addresses don't
+change.
 
-```
-physical_address | PAGE_PRESENT | PAGE_WRITE
-```
+Enabling paging: write the page directory's physical address into `CR3`, then set
+the PG bit in `CR0`. The CPU starts translating every memory access immediately.
+Because we identity-mapped, the EIP (instruction pointer) and ESP (stack pointer)
+remain valid through that transition.
 
-with `physical_address = (table_index * 1024 + entry_index) * 4096`.
+## Testing
 
-This gives an exact identity map for `0x0000_0000`–`0x00FF_FFFF`. The kernel
-sits at `0x0010_0000` (1 MiB) and the static page tables themselves are also
-within this range, so after enabling paging everything continues to work.
-
-## Enabling paging
-
-```c
-__asm__ volatile (
-    "mov %0, %%cr3\n\t"          // load page directory base register
-    "mov %%cr0, %%eax\n\t"
-    "or  $0x80000000, %%eax\n\t" // set PG bit
-    "mov %%eax, %%cr0\n\t"
-    : : "r"(page_dir) : "eax"
-);
-```
-
-The CPU immediately starts translating addresses through the new tables. Because
-we identity-mapped, the instruction pointer (EIP) and stack pointer (ESP) remain
-valid.
-
-## Key files
-
-| File | Role |
-|------|------|
-| `mm/paging.c` | static PD + 4 PTs, identity map 0–16 MiB, CR3/CR0 setup |
-| `mm/paging.h` | `paging_init()`, `PAGE_PRESENT`, `PAGE_WRITE`, `PAGE_SIZE` |
-
-## Serial output
-
-```
-PAGING_OK
-```
-
-Printed by `kernel_main` after `paging_init()` returns. The fact that execution
-continues normally proves the identity mapping is correct.
+`PAGING_OK` is printed after `paging_init()` returns. If the mapping were wrong
+the kernel would page-fault and crash before getting there.

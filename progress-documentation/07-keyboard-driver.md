@@ -1,71 +1,41 @@
-# 07 — Keyboard driver: IRQ1 and PS/2 scancodes
+# 07 — Keyboard driver
 
-**What we built:** a **PS/2 keyboard driver** on IRQ1 that translates raw
-hardware scancodes into ASCII characters, tracks shift/caps-lock state, and
-queues keystrokes in a ring buffer for the rest of the kernel to consume.
+The keyboard driver reads PS/2 scancodes from IRQ1 and translates them to ASCII.
 
-## The big idea: how a keypress reaches software
+## How a keypress works at the hardware level
 
-When you press a key, the PS/2 keyboard controller sends a **scancode** byte to
-the CPU via IRQ1. The scancode is not an ASCII value — it is a raw number that
-encodes which physical key moved and whether it was pressed (make code) or
-released (break code). The driver's job is to:
+When you press a key, the PS/2 keyboard controller sends a **scancode** byte to the
+CPU via IRQ1. Scancodes are not ASCII — they're raw hardware codes for which key
+moved. A press sends a "make code" and a release sends a "break code" (same number
+with the high bit set).
 
-1. **Catch the interrupt** — our IRQ1 handler runs.
-2. **Read the scancode** from I/O port `0x60`.
-3. **Filter break codes** — the high bit (bit 7) is set on key release; we
-   ignore releases for regular keys but track them for modifiers.
-4. **Track modifiers** — shift (left `0x2A` / right `0x36`) and caps-lock
-   (`0x3A`) change how we translate the next key.
-5. **Look up the character** in a translation table and push it to a ring buffer.
+The driver's job each time IRQ1 fires:
+1. Read the scancode from I/O port `0x60`
+2. If the high bit is set, it's a key release — update modifier state and return
+3. Track shift and caps-lock state
+4. Look up the ASCII value in a translation table
+5. Push the character into a ring buffer
 
-## Scancode sets and our choice
+## Translation tables
 
-PS/2 keyboards can use three scancode sets. We use **set 1** (the BIOS default),
-which QEMU also defaults to. In set 1, every key has a distinct make code in the
-range `0x01`–`0x7F`; the corresponding break code is the make code OR'd with
-`0x80`.
+We use two 58-entry arrays: one for unshifted characters and one for shifted. Shift
+and caps-lock interact the standard way — for letters they XOR (both on means
+lowercase), for symbols only shift matters.
 
-## The translation tables
+We're using PS/2 scancode set 1 (the BIOS default, which QEMU also uses). Every key
+has a make code in the range `0x01`–`0x7F`.
 
-We keep two 58-entry arrays: `sc_lower` (unshifted) and `sc_upper` (shifted).
-Entry `[i]` holds the ASCII character for scancode `i`, or `0` for keys with no
-printable representation (Ctrl, non-printable function keys, etc.).
+## Ring buffer
 
-Shift and caps-lock compose correctly:
+Scancodes arrive asynchronously at interrupt time. We can't block the interrupt
+handler waiting for the kernel to consume a character, so we use a 64-entry ring
+buffer with separate head (write) and tail (read) indices. The handler writes to
+head; `keyboard_getc()` reads from tail. If the buffer is full, the newest keystroke
+is dropped.
 
-| caps-lock | shift | letter result |
-|-----------|-------|---------------|
-| off       | off   | lowercase     |
-| off       | on    | uppercase     |
-| on        | off   | uppercase     |
-| on        | on    | lowercase (XOR) |
+## Testing
 
-Non-letter keys (digits, symbols) are only affected by the shift key, not
-caps-lock, which matches standard keyboard behaviour.
-
-## The ring buffer
-
-Scancodes arrive asynchronously at interrupt time. We cannot block the interrupt
-handler waiting for the kernel to consume a character, so we use a **ring buffer**:
-a 64-byte circular array with separate `head` (write) and `tail` (read) indices.
-The handler writes to `head`; `keyboard_getc()` reads from `tail`. If the buffer
-is full the newest keystroke is silently dropped — acceptable for a kernel.
-
-## Key files
-
-| File | Role |
-|------|------|
-| `kernel/keyboard.c` | IRQ1 handler, modifier state, translation tables, ring buffer |
-| `kernel/keyboard.h` | `keyboard_init()`, `keyboard_getc()` |
-
-## Serial output
-
-```
-KBD_OK
-```
-
-Printed by `kernel_main` after `keyboard_init()` returns without fault. Because
-the test harness runs headless (no real keyboard input), we cannot test actual
-character decoding at boot — but the IRQ1 handler is installed and the driver is
-ready to receive keystrokes the moment a key is pressed in interactive use.
+In the headless QEMU test environment there's no keyboard to press, so we can't
+verify character decoding at boot time. `KBD_OK` just confirms the driver initialized
+and IRQ1 is installed without crashing. In interactive use the driver is ready the
+moment a key is pressed.

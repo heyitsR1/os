@@ -1,82 +1,44 @@
-# 08 — Mouse driver: IRQ12 and PS/2 aux packets
+# 08 — Mouse driver
 
-**What we built:** a **PS/2 mouse driver** on IRQ12 that initialises the 8042
-auxiliary device, accumulates 3-byte movement packets, and exposes a
-`mouse_state_t` struct with clamped (x, y) coordinates and button bits.
+The mouse driver initializes the PS/2 auxiliary device and reads 3-byte movement
+packets from IRQ12.
 
-## The big idea: the 8042 as a dual-channel controller
+## The 8042 controller
 
-The same Intel 8042 chip that handles the keyboard also hosts a second,
-"auxiliary" PS/2 channel for the mouse. The two channels share:
+The same chip that handles the keyboard (the Intel 8042) also has a second "auxiliary"
+channel for the mouse. Both share data port `0x60` and command/status port `0x64`.
+The kernel tells them apart by which IRQ fires: keyboard is IRQ1, mouse is IRQ12 (via
+the slave PIC cascade).
 
-- **Data port `0x60`** — reads deliver keyboard data *or* mouse data depending
-  on which device just fired.
-- **Status/command port `0x64`** — commands here control both channels.
+## Initialization
 
-To distinguish them at the IRQ level: keyboard fires **IRQ1**, mouse fires
-**IRQ12** (via the slave PIC cascade on IRQ2).
+The init sequence has to go through the 8042 controller to enable the aux device:
+1. Send `0xA8` to `0x64` — enable aux device
+2. Read the controller config byte and set the bit that enables IRQ12
+3. Write the config byte back
+4. Send `0xF6` (set defaults) to the mouse and wait for ACK
+5. Send `0xF4` (enable data reporting) and wait for ACK
+6. Install the IRQ12 handler and unmask IRQ2 + IRQ12 in the PIC
 
-## Initialisation sequence
+All port accesses poll the controller status register before reading or writing —
+the 8042 is slow. We also added timeout counters so a non-responsive controller
+(like headless QEMU where there's no actual mouse) doesn't hang the kernel.
 
-```
-1. Write 0xA8 to 0x64   → enable aux device
-2. Write 0x20 to 0x64   → request "Compaq status byte"
-   Read byte from 0x60  → get current controller config
-   Set bit 1 (IRQ12 enable), clear bit 5 (mouse clock disable)
-3. Write 0x60 to 0x64   → write modified status byte back
-   Write modified byte to 0x60
-4. Send 0xF6 to mouse   → "set defaults"   (expect ACK 0xFA)
-5. Send 0xF4 to mouse   → "enable data reporting" (expect ACK 0xFA)
-6. Install IRQ12 handler; unmask IRQ2 and IRQ12 in the PIC
-```
+## Packet format
 
-All 8042 port accesses poll the status register's busy bits before reading or
-writing, with a **timeout counter** so a non-responsive controller (e.g. the
-headless QEMU test environment) doesn't hang the kernel.
+Each movement or click produces a 3-byte packet:
+- Byte 0: flag bits (overflow flags, sign bits for X and Y, button states)
+- Byte 1: X delta (unsigned, sign comes from byte 0 bit 4)
+- Byte 2: Y delta (unsigned, sign comes from byte 0 bit 5)
 
-## The 3-byte packet format
+The deltas are 9-bit two's-complement values split across the byte and a sign bit
+in byte 0. We reconstruct the full signed delta and apply it to the current X/Y
+position. Mouse Y is inverted relative to screen Y (moving up increases dy, but
+decreases the screen row), so we subtract. Coordinates are clamped to 0–79 (columns)
+and 0–24 (rows) so `mouse_get_state()` always returns a valid screen position.
 
-Every mouse movement or click produces a 3-byte packet:
+## Testing
 
-| Byte | Contents |
-|------|----------|
-| 0    | Flags: Y-overflow, X-overflow, Y-sign, X-sign, always-1, mid, right, left |
-| 1    | X delta (unsigned 8-bit; sign is bit 4 of byte 0) |
-| 2    | Y delta (unsigned 8-bit; sign is bit 5 of byte 0) |
-
-The handler accumulates bytes into a 3-element array and only processes the
-packet once all three have arrived. Overflow packets (bytes 0 bits 6–7 set) are
-discarded — the delta values are unreliable in that case.
-
-## Sign extension and coordinate system
-
-The PS/2 deltas are **9-bit two's-complement** values spread across the byte and
-its sign bit in byte 0. We reconstruct the full signed value:
-
-```c
-int32_t dx = (int32_t)packet[1] - ((flags & 0x10) ? 256 : 0);
-int32_t dy = (int32_t)packet[2] - ((flags & 0x20) ? 256 : 0);
-```
-
-Mouse Y is inverted relative to screen Y (mouse moves up → positive dy → row
-decreases), so we subtract: `state.y -= dy`.
-
-Coordinates are **clamped** to the VGA 80×25 text-mode screen bounds so
-`mouse_get_state()` always returns a valid (col, row) pair.
-
-## Key files
-
-| File | Role |
-|------|------|
-| `kernel/mouse.c` | 8042 init, 3-byte packet FSM, IRQ12 handler, clamped state |
-| `kernel/mouse.h` | `mouse_state_t`, `mouse_init()`, `mouse_get_state()`, screen constants |
-
-## Serial output
-
-```
-MOUSE_OK
-```
-
-Printed by `kernel_main` after `mouse_init()` returns. The init may return
-early if the 8042 times out (expected in `-display none` QEMU), but the IRQ12
-handler is still registered and will activate when a real mouse is present.
+`MOUSE_OK` confirms the init sequence ran without hanging. In headless QEMU the
+8042 aux init may time out partway through, but the IRQ12 handler is still registered
+and will work with a real mouse in interactive use.
