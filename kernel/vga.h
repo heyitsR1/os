@@ -14,3 +14,6 @@ void vga_init(void);
 void vga_set_color(uint8_t fg, uint8_t bg);
 void vga_putc(char c);
 void vga_write(const char *s);
+void vga_clear(void);                           // blank the screen, cursor to (0,0)
+void vga_write_uint(uint32_t n);                // decimal, no leading zeros
+void vga_put_at(uint8_t x, uint8_t y, char c); // write one char at a cell, no cursor move

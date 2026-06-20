@@ -15,13 +15,17 @@ void vga_set_color(uint8_t fg, uint8_t bg) {
     color = fg | (bg << 4);
 }
 
-void vga_init(void) {
-    row = 0;
-    col = 0;
-    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+void vga_clear(void) {
     for (size_t y = 0; y < VGA_HEIGHT; y++)
         for (size_t x = 0; x < VGA_WIDTH; x++)
             VGA_MEM[y * VGA_WIDTH + x] = vga_entry(' ', color);
+    row = 0;
+    col = 0;
+}
+
+void vga_init(void) {
+    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+    vga_clear();
 }
 
 static void vga_scroll(void) {
@@ -48,4 +52,17 @@ void vga_putc(char c) {
 
 void vga_write(const char *s) {
     for (; *s; s++) vga_putc(*s);
+}
+
+void vga_write_uint(uint32_t n) {
+    if (n == 0) { vga_putc('0'); return; }
+    char tmp[10];
+    int i = 0;
+    while (n > 0) { tmp[i++] = (char)('0' + (n % 10)); n /= 10; }
+    while (i > 0) vga_putc(tmp[--i]);
+}
+
+void vga_put_at(uint8_t x, uint8_t y, char c) {
+    if (x >= VGA_WIDTH || y >= VGA_HEIGHT) return;
+    VGA_MEM[y * VGA_WIDTH + x] = vga_entry(c, color);
 }
