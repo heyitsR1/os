@@ -43,6 +43,10 @@ void vga_putc(char c) {
         if (++row == VGA_HEIGHT) vga_scroll();
         return;
     }
+    if (c == '\b') {
+        if (col > 0) { col--; VGA_MEM[row * VGA_WIDTH + col] = vga_entry(' ', color); }
+        return;
+    }
     VGA_MEM[row * VGA_WIDTH + col] = vga_entry(c, color);
     if (++col == VGA_WIDTH) {
         col = 0;
