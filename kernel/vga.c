@@ -56,7 +56,7 @@ void vga_write(const char *s) {
 
 void vga_write_uint(uint32_t n) {
     if (n == 0) { vga_putc('0'); return; }
-    char tmp[10];
+    char tmp[11];
     int i = 0;
     while (n > 0) { tmp[i++] = (char)('0' + (n % 10)); n /= 10; }
     while (i > 0) vga_putc(tmp[--i]);
