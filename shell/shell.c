@@ -7,6 +7,8 @@
 #include "../mm/pmm.h"
 #include "../sched/sched.h"
 #include "../sched/proc.h"
+#include "../kernel/mouse.h"
+#include "../include/io.h"
 
 #define LINE_MAX 128
 #define MAX_ARGS 8
@@ -76,6 +78,8 @@ static void cmd_uptime(int argc, char *argv[]);
 static void cmd_threads(int argc, char *argv[]);
 static void cmd_sched(int argc, char *argv[]);
 static void cmd_proc(int argc, char *argv[]);
+static void cmd_mouse(int argc, char *argv[]);
+static void cmd_reboot(int argc, char *argv[]);
 
 static const command_t commands[] = {
     { "help",    cmd_help,    "list available commands" },
@@ -87,6 +91,8 @@ static const command_t commands[] = {
     { "threads", cmd_threads, "demo multithreading (interleaved threads)" },
     { "sched",   cmd_sched,   "demo preemptive CPU scheduling" },
     { "proc",    cmd_proc,    "demo multiprocessing (isolated memory)" },
+    { "mouse",   cmd_mouse,   "live mouse tracking (any key to exit)" },
+    { "reboot",  cmd_reboot,  "quit QEMU" },
 };
 static const int n_commands = (int)(sizeof(commands) / sizeof(commands[0]));
 
@@ -185,6 +191,47 @@ static void cmd_proc(int argc, char *argv[]) {
         vga_write("each kept its own value -> address spaces isolated\n");
     else
         vga_write("a process saw the other's value -> isolation FAILED\n");
+}
+
+static void cmd_mouse(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    vga_write("move the mouse; press any key to exit.\n");
+    uint8_t last_x = 0, last_y = 0;
+    char prev = ' ';
+    for (;;) {
+        if (keyboard_getc() != 0) break;   // any key exits
+
+        mouse_state_t m = mouse_get_state();
+        uint8_t x = (uint8_t)m.x, y = (uint8_t)m.y;
+
+        // restore the cell the cursor was on, then draw at the new spot
+        vga_put_at(last_x, last_y, prev);
+        prev = 'X';
+        vga_put_at(x, y, 'X');
+        last_x = x; last_y = y;
+
+        // status line on row 24: a label plus L/R/M button indicators
+        for (uint8_t i = 0; i < 50; i++) vga_put_at(i, 24, ' ');
+        const char *label = "cursor=X  buttons: ";
+        uint8_t col = 0;
+        for (const char *s = label; *s; s++) vga_put_at(col++, 24, *s);
+        uint8_t b = m.buttons;
+        vga_put_at(col++, 24, (b & 1) ? 'L' : '-');
+        vga_put_at(col++, 24, (b & 2) ? 'R' : '-');
+        vga_put_at(col++, 24, (b & 4) ? 'M' : '-');
+
+        for (volatile int d = 0; d < 200000; d++) { }   // small debounce delay
+    }
+    vga_put_at(last_x, last_y, prev == 'X' ? ' ' : prev);  // clean cursor
+    vga_write("\nexited mouse mode.\n");
+}
+
+static void cmd_reboot(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    vga_write("bye.\n");
+    serial_write("SHELL_EXIT\n");
+    outb(0xF4, 0x00);   // QEMU isa-debug-exit
+    for (;;) __asm__ volatile ("hlt");
 }
 
 // Parse and run one entered line.
