@@ -14,8 +14,9 @@
 #include "../mm/kmalloc.h"
 #include "../sched/sched.h"
 #include "../sched/proc.h"
+#include "../shell/shell.h"
 
-static void qemu_exit(uint8_t code) {
+static void __attribute__((unused)) qemu_exit(uint8_t code) {
     outb(0xF4, code);
 }
 
@@ -161,6 +162,11 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
         klog("BAD_MAGIC\n");
     }
 
+#ifdef RUN_TESTS_ONLY
     qemu_exit(0);
     for (;;) { __asm__ volatile ("hlt"); }
+#else
+    shell_run();   // interactive REPL, never returns
+    for (;;) { __asm__ volatile ("hlt"); }   // unreachable safety net
+#endif
 }
