@@ -2,12 +2,12 @@
 # Boot the kernel headless in QEMU, capture COM1 serial output, and pass
 # iff the expected marker appears within the timeout.
 #
-# Usage: scripts/test.sh <EXPECTED_MARKER> [timeout_seconds]
+# Usage: scripts/test.sh <EXPECTED_MARKER> [kernel_path] [timeout_seconds]
 set -u
 
-KERNEL="build/kernel.bin"
-EXPECT="${1:?usage: test.sh <EXPECTED_MARKER> [timeout_seconds]}"
-TIMEOUT="${2:-20}"
+EXPECT="${1:?usage: test.sh <EXPECTED_MARKER> [kernel_path] [timeout_seconds]}"
+KERNEL="${2:-build/kernel.bin}"
+TIMEOUT="${3:-20}"
 
 if [[ ! -f "$KERNEL" ]]; then
   echo "FAIL: $KERNEL not built (run 'make' first)"; exit 2
