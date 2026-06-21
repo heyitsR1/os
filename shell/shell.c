@@ -5,10 +5,43 @@
 #include "../kernel/keyboard.h"
 #include "../kernel/pit.h"
 #include "../mm/pmm.h"
+#include "../sched/sched.h"
+#include "../sched/proc.h"
 
 #define LINE_MAX 128
 #define MAX_ARGS 8
 #define PROMPT   "omen> "
+
+// --- threads demo ---
+static volatile int td_a = 0, td_b = 0;
+static void td_thread_a(void) {
+    for (int i = 0; i < 5; i++) { td_a++; vga_putc('A'); sched_yield(); }
+}
+static void td_thread_b(void) {
+    for (int i = 0; i < 5; i++) { td_b++; vga_putc('B'); sched_yield(); }
+}
+
+// --- scheduling demo ---
+static volatile uint32_t sd_p = 0, sd_q = 0;
+static volatile int sd_stop = 0;
+static void sd_worker_p(void) { while (!sd_stop) sd_p++; }
+static void sd_worker_q(void) { while (!sd_stop) sd_q++; }
+
+// --- process isolation demo ---
+#define SHELL_MP_VADDR 0x01000000u
+static volatile int pd_a = 0, pd_b = 0;
+static void pd_proc_a(void) {
+    volatile uint32_t *p = (volatile uint32_t *)SHELL_MP_VADDR;
+    *p = 0xAAAAAAAAu;
+    for (int i = 0; i < 4; i++) sched_yield();
+    pd_a = (*p == 0xAAAAAAAAu);
+}
+static void pd_proc_b(void) {
+    volatile uint32_t *p = (volatile uint32_t *)SHELL_MP_VADDR;
+    *p = 0xBBBBBBBBu;
+    for (int i = 0; i < 4; i++) sched_yield();
+    pd_b = (*p == 0xBBBBBBBBu);
+}
 
 // --- tiny freestanding string helpers ---
 static int shell_strcmp(const char *a, const char *b) {
@@ -40,6 +73,9 @@ static void cmd_clear(int argc, char *argv[]);
 static void cmd_echo(int argc, char *argv[]);
 static void cmd_meminfo(int argc, char *argv[]);
 static void cmd_uptime(int argc, char *argv[]);
+static void cmd_threads(int argc, char *argv[]);
+static void cmd_sched(int argc, char *argv[]);
+static void cmd_proc(int argc, char *argv[]);
 
 static const command_t commands[] = {
     { "help",    cmd_help,    "list available commands" },
@@ -48,6 +84,9 @@ static const command_t commands[] = {
     { "echo",    cmd_echo,    "print the given text" },
     { "meminfo", cmd_meminfo, "show free physical memory" },
     { "uptime",  cmd_uptime,  "show time since boot" },
+    { "threads", cmd_threads, "demo multithreading (interleaved threads)" },
+    { "sched",   cmd_sched,   "demo preemptive CPU scheduling" },
+    { "proc",    cmd_proc,    "demo multiprocessing (isolated memory)" },
 };
 static const int n_commands = (int)(sizeof(commands) / sizeof(commands[0]));
 
@@ -103,6 +142,49 @@ static void cmd_uptime(int argc, char *argv[]) {
     vga_write(" ticks (");
     vga_write_uint(ticks / 100);
     vga_write(" s at 100 Hz)\n");
+}
+
+static void cmd_threads(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    td_a = 0; td_b = 0;
+    vga_write("spawning two threads (interleaved output): ");
+    task_create(td_thread_a);
+    task_create(td_thread_b);
+    while (td_a < 5 || td_b < 5) sched_yield();
+    vga_write("\nthreads ran concurrently -> context switch works\n");
+}
+
+static void cmd_sched(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    sd_p = 0; sd_q = 0; sd_stop = 0;
+    vga_write("two non-yielding workers under preemption...\n");
+    task_create(sd_worker_p);
+    task_create(sd_worker_q);
+    uint32_t t0 = pit_get_ticks();
+    while (pit_get_ticks() - t0 < 30) __asm__ volatile ("hlt");
+    sd_stop = 1;
+    for (int i = 0; i < 4; i++) sched_yield();
+    vga_write("worker P count: "); vga_write_uint(sd_p); vga_putc('\n');
+    vga_write("worker Q count: "); vga_write_uint(sd_q); vga_putc('\n');
+    if (sd_p > 0 && sd_q > 0)
+        vga_write("both advanced without yielding -> preemptive RR works\n");
+    else
+        vga_write("a worker never ran -> preemption FAILED\n");
+}
+
+static void cmd_proc(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    pd_a = 0; pd_b = 0;
+    vga_write("two processes, same vaddr, isolated address spaces...\n");
+    task_t *pa = task_create(pd_proc_a);
+    pa->cr3 = process_create_space(SHELL_MP_VADDR);
+    task_t *pb = task_create(pd_proc_b);
+    pb->cr3 = process_create_space(SHELL_MP_VADDR);
+    while (!pd_a || !pd_b) sched_yield();
+    if (pd_a && pd_b)
+        vga_write("each kept its own value -> address spaces isolated\n");
+    else
+        vga_write("a process saw the other's value -> isolation FAILED\n");
 }
 
 // Parse and run one entered line.
