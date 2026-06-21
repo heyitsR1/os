@@ -44,7 +44,15 @@ void vga_putc(char c) {
         return;
     }
     if (c == '\b') {
-        if (col > 0) { col--; VGA_MEM[row * VGA_WIDTH + col] = vga_entry(' ', color); }
+        if (col > 0) {
+            col--;
+        } else if (row > 0) {
+            row--;                 // step back across a line wrap
+            col = VGA_WIDTH - 1;
+        } else {
+            return;                // already at top-left, nothing to erase
+        }
+        VGA_MEM[row * VGA_WIDTH + col] = vga_entry(' ', color);
         return;
     }
     VGA_MEM[row * VGA_WIDTH + col] = vga_entry(c, color);
