@@ -17,8 +17,23 @@ Boots on a virtual x86 PC and brings up the core pieces of an operating system:
 - Kernel threads with hand-written context switching
 - Preemptive round-robin CPU scheduler
 - Multiple processes with isolated address spaces (CR3 swap)
+- An interactive keyboard-driven shell that demos each feature on demand
 
 Everything runs in ring 0, 32-bit protected mode. No user mode, no filesystem, no SMP.
+
+## The shell
+
+`make run` drops you at an `omen>` prompt. Type `help` for the command list:
+
+- `about`, `clear`, `echo`, `meminfo`, `uptime` — informational commands
+- `threads` — spawn two interleaved kernel threads (context switch demo)
+- `sched`   — two non-yielding workers under preemption (scheduler demo)
+- `proc`    — two processes sharing a virtual address, isolated (process demo)
+- `mouse`   — live mouse cursor tracking; press any key to exit
+- `reboot`  — quit QEMU
+
+The shell reuses the same kernel primitives the boot self-tests exercise, so each
+command is a live, on-demand version of the corresponding feature.
 
 ## Building and running
 
@@ -44,6 +59,7 @@ boot/        multiboot stub (assembly)
 kernel/      kernel_main, GDT, IDT, ISRs, PIC, PIT, keyboard, mouse, serial, VGA
 mm/          physical memory manager, paging, kmalloc
 sched/       task struct, context_switch (assembly), scheduler, process isolation
+shell/       interactive REPL — line editing, command table, feature demos
 scripts/     test.sh — headless QEMU test harness
 linker.ld
 Makefile
