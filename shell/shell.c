@@ -3,6 +3,8 @@
 #include "../kernel/vga.h"
 #include "../kernel/serial.h"
 #include "../kernel/keyboard.h"
+#include "../kernel/pit.h"
+#include "../mm/pmm.h"
 
 #define LINE_MAX 128
 #define MAX_ARGS 8
@@ -33,9 +35,19 @@ typedef void (*cmd_fn)(int argc, char *argv[]);
 typedef struct { const char *name; cmd_fn fn; const char *help; } command_t;
 
 static void cmd_help(int argc, char *argv[]);
+static void cmd_about(int argc, char *argv[]);
+static void cmd_clear(int argc, char *argv[]);
+static void cmd_echo(int argc, char *argv[]);
+static void cmd_meminfo(int argc, char *argv[]);
+static void cmd_uptime(int argc, char *argv[]);
 
 static const command_t commands[] = {
-    { "help", cmd_help, "list available commands" },
+    { "help",    cmd_help,    "list available commands" },
+    { "about",   cmd_about,   "show OS name and feature checklist" },
+    { "clear",   cmd_clear,   "clear the screen" },
+    { "echo",    cmd_echo,    "print the given text" },
+    { "meminfo", cmd_meminfo, "show free physical memory" },
+    { "uptime",  cmd_uptime,  "show time since boot" },
 };
 static const int n_commands = (int)(sizeof(commands) / sizeof(commands[0]));
 
@@ -49,6 +61,48 @@ static void cmd_help(int argc, char *argv[]) {
         vga_write(commands[i].help);
         vga_putc('\n');
     }
+}
+
+static void cmd_about(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    vga_write("omen OS\n");
+    vga_write("  boot: multiboot magic verified at startup\n");
+    vga_write("  subsystems: GDT, IDT, PIC, PIT(100Hz), paging, heap\n");
+    vga_write("  features: keyboard, mouse, threads, scheduling, processes\n");
+}
+
+static void cmd_clear(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    vga_clear();
+}
+
+static void cmd_echo(int argc, char *argv[]) {
+    for (int i = 1; i < argc; i++) {
+        vga_write(argv[i]);
+        if (i < argc - 1) vga_putc(' ');
+    }
+    vga_putc('\n');
+}
+
+static void cmd_meminfo(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    uint32_t frames = pmm_free_count();
+    vga_write("free physical frames: ");
+    vga_write_uint(frames);
+    vga_write(" (");
+    vga_write_uint(frames * 4);
+    vga_write(" KiB)\n");
+    vga_write("heap: bump allocator (kfree is a no-op)\n");
+}
+
+static void cmd_uptime(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    uint32_t ticks = pit_get_ticks();
+    vga_write("uptime: ");
+    vga_write_uint(ticks);
+    vga_write(" ticks (");
+    vga_write_uint(ticks / 100);
+    vga_write(" s at 100 Hz)\n");
 }
 
 // Parse and run one entered line.
