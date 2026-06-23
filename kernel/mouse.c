@@ -73,30 +73,39 @@ static void mouse_handler(registers_t *r) {
 }
 
 void mouse_init(void) {
+    // Program the PS/2 controller with interrupts disabled. The controller's
+    // command responses (e.g. the config byte) arrive in the shared output
+    // port 0x60; if IRQ1 is live, the keyboard handler would consume them
+    // before we can poll, so init must run atomically.
+    __asm__ volatile ("cli");
+
     // Enable auxiliary PS/2 device.
-    if (ps2_wait_write()) return;
+    if (ps2_wait_write()) goto done;
     outb(PS2_CMD, 0xA8);
 
     // Read the current Compaq status byte and set bit 1 (enable aux IRQ).
-    if (ps2_wait_write()) return;
+    if (ps2_wait_write()) goto done;
     outb(PS2_CMD, 0x20);
     int status_byte = mouse_read();
-    if (status_byte < 0) return;
+    if (status_byte < 0) goto done;
     uint8_t status = (uint8_t)status_byte | 0x02;   // enable IRQ12
     status &= ~0x20;                                 // clear mouse-clock-disable
-    if (ps2_wait_write()) return;
+    if (ps2_wait_write()) goto done;
     outb(PS2_CMD, 0x60);
-    if (ps2_wait_write()) return;
+    if (ps2_wait_write()) goto done;
     outb(PS2_DATA, status);
 
-    if (mouse_write(0xF6) < 0) return;   // set defaults
+    if (mouse_write(0xF6) < 0) goto done;   // set defaults
     mouse_read();                          // ACK (ignore timeout here)
-    if (mouse_write(0xF4) < 0) return;   // enable data reporting
+    if (mouse_write(0xF4) < 0) goto done;   // enable data reporting
     mouse_read();                          // ACK
 
     irq_install_handler(12, mouse_handler);
     pic_clear_mask(2);    // unmask cascade (required for any slave IRQ)
     pic_clear_mask(12);   // unmask IRQ12
+
+done:
+    __asm__ volatile ("sti");
 }
 
 mouse_state_t mouse_get_state(void) {
