@@ -75,7 +75,7 @@ void kernel_main(uint32_t magic, uint32_t mb_info) {
     serial_write("BOOT_OK\n");
 
     vga_init();
-    vga_set_color(VGA_WHITE, VGA_BLUE);
+    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     klog("omen OS - phase 1\n");
     klog("VGA_OK\n");
 

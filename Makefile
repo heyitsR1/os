@@ -22,7 +22,7 @@ ISO     := build/os.iso
 
 EXPECT  ?= MP_OK
 
-.PHONY: all run test iso clean
+.PHONY: all run runbig test iso clean
 
 all: $(KERNEL)
 
@@ -39,6 +39,12 @@ $(KERNEL): $(OBJS) linker.ld
 
 run: $(KERNEL)
 	$(QEMU) -kernel $(KERNEL) -serial stdio -no-reboot
+
+# Same as run, but in a large, resizable, sharp window (good for screenshots).
+# Drag the window corner to scale; the green button / ^Cmd+F toggles fullscreen.
+runbig: $(KERNEL)
+	$(QEMU) -kernel $(KERNEL) -serial stdio -no-reboot \
+		-display cocoa,zoom-to-fit=on,zoom-interpolation=off
 
 test: $(TEST_KERNEL)
 	./scripts/test.sh $(EXPECT) $(TEST_KERNEL)
